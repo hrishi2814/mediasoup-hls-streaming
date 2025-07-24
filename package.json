@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev:next": "next dev",
+    "dev:next": "next dev -H 0.0.0.0",
     "dev:server": "nodemon --watch 'server/**/*.ts' --exec 'ts-node --project tsconfig.server.json' server/index.ts",
     "dev": "concurrently \"npm:dev:next\" \"npm:dev:server\"",
     "build": "next build",
@@ -13,6 +13,7 @@
   "dependencies": {
     "express": "^5.1.0",
     "mediasoup": "^3.16.7",
+    "mediasoup-client": "^3.12.5",
     "next": "15.4.3",
     "react": "19.1.0",
     "react-dom": "19.1.0",

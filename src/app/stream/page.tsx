@@ -1,42 +1,161 @@
-"use client"; //apparently this tells the next that it is a client component, allowing it to use browseronly apis loda lassan
+"use client";
 
-import React from 'react' ;
-import { useEffect, useRef } from 'react';
-
+import React from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { io, Socket } from "socket.io-client";
+import { Device } from "mediasoup-client";
+import { types } from 'mediasoup-client'; // Import the types
 
 export default function Stream() {
+    // --- Refs for core objects ---
+    const vidref = useRef<HTMLVideoElement>(null);
+    const socketRef = useRef<Socket | null>(null);
+    const devref = useRef<Device | null>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
 
-    //We use useRef because we need to access the DOM element directly,but we don't want to cause a re-render when it's assigned.
-  const vidref = useRef<HTMLVideoElement>(null);
+    // --- Refs for transports ---
+    const sendTransportRef = useRef<types.Transport | null>(null);
+    const recvTransportRef = useRef<types.Transport | null>(null);
 
-  useEffect(()=>{
-    
-    async function getCameraStream(){
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video:true,
-            audio:true
+    // --- State for UI ---
+    const [isStreamReady, setIsStreamReady] = useState(false);
+    const [isTransportReady, setIsTransportReady] = useState(false);
+    const [isProducing, setIsProducing] = useState(false);
+    const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+
+    useEffect(() => {
+        const socket = io("http://192.168.1.38:3003");
+        socketRef.current = socket;
+
+        socket.on('connect', () => {
+            console.log('connected to backend');
+            socket.emit('getRouterRtpCapabilities', async (routerRtpCapabilities: any) => {
+                try {
+                    const device = new Device();
+                    await device.load({ routerRtpCapabilities });
+                    devref.current = device;
+                    console.log('device boi loaded');
+                    
+                    // Create both transports after device is loaded
+                    createSendTransport();
+                    createRecvTransport();
+                } catch (error) {
+                    console.error('soup device error', error);
+                }
+            });
         });
 
-        if(vidref.current){
-            vidref.current.srcObject = stream;
+        // --- Listen for new producers from other clients ---
+        socket.on('new-producer', ({ producerId }) => {
+            console.log(`--- New producer detected: ${producerId}`);
+            consumeStream(producerId);
+        });
+
+        const createSendTransport = () => {
+            if (!devref.current || !socketRef.current) return;
+            socketRef.current.emit('createWebRtcTransport', { sender: true }, (params: any) => {
+                if (params.error) { console.error(params.error); return; }
+                
+                const transport = devref.current!.createSendTransport(params);
+                sendTransportRef.current = transport;
+                setIsTransportReady(true); // Set ready once transport is created
+                console.log('Send transport created, ready to produce.');
+
+                transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
+                    if (!socketRef.current) return;
+                    socketRef.current.emit('connectTransport', { transportId: transport.id, dtlsParameters }, ({ connected }) => {
+                        if (connected) { callback(); console.log('Send transport connected.'); } 
+                        else { errback(new Error('Send transport connection failed.')); }
+                    });
+                });
+
+                transport.on('produce', async (parameters, callback, errback) => {
+                    if (!socketRef.current) return;
+                    socketRef.current.emit('createProducer', { transportId: transport.id, kind: parameters.kind, rtpParameters: parameters.rtpParameters }, ({ id }) => {
+                        callback({ id });
+                        console.log('Producer created');
+                    });
+                });
+            });
+        };
+
+        const createRecvTransport = () => {
+            if (!devref.current || !socketRef.current) return;
+            socketRef.current.emit('createWebRtcTransport', { sender: false }, (params: any) => {
+                if (params.error) { console.error(params.error); return; }
+
+                const transport = devref.current!.createRecvTransport(params);
+                recvTransportRef.current = transport;
+                console.log('Receive transport created.');
+
+                transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                    if (!socketRef.current) return;
+                    socketRef.current.emit('connectTransport', { transportId: transport.id, dtlsParameters }, ({ connected }) => {
+                        if (connected) { callback(); console.log('Receive transport connected.'); }
+                        else { errback(new Error('Receive transport connection failed.')); }
+                    });
+                });
+            });
+        };
+
+        const consumeStream = async (producerId: string) => {
+            if (!devref.current || !recvTransportRef.current || !socketRef.current) return;
+
+            const rtpCapabilities = devref.current.rtpCapabilities;
+            socketRef.current.emit('createConsumer', { transportId: recvTransportRef.current.id, producerId, rtpCapabilities }, async (params: any) => {
+                if (params.error) { console.error('Cannot consume', params.error); return; }
+
+                const consumer = await recvTransportRef.current!.consume({
+                    id: params.id,
+                    producerId: params.producerId,
+                    kind: params.kind,
+                    rtpParameters: params.rtpParameters,
+                });
+                
+                socketRef.current!.emit('resumeConsumer', { consumerId: consumer.id });
+
+                const { track } = consumer;
+                const newStream = new MediaStream([track]);
+                setRemoteStreams(prev => new Map(prev).set(producerId, newStream));
+            });
+        };
+
+        async function getCameraStream() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            localStreamRef.current = stream;
+            if (vidref.current) { vidref.current.srcObject = stream; }
+            setIsStreamReady(true);
         }
-    }
-    getCameraStream();
-  },[])
+        getCameraStream();
 
+        return () => { socket.disconnect(); };
+    }, []);
 
-  return (
+    const goLive = async () => {
+        if (!sendTransportRef.current || !localStreamRef.current) return;
+        setIsProducing(true);
+        const track = localStreamRef.current.getVideoTracks()[0];
+        if (track) { await sendTransportRef.current.produce({ track }); }
+    };
 
-    <div>
-        <p>Stream page</p>
-              <video
-        ref={vidref} // Attach the ref to the element
-        autoPlay      // Start playing automatically
-        playsInline   // Important for mobile browsers
-        muted         // Mute your own audio to prevent feedback loops
-        style={{ width: '80%', maxWidth: '600px', border: '1px solid black' }}
-      />
-    </div>
-  )
+    return (
+        <div>
+            <h1>My Stream</h1>
+            <div>
+                <p>Stream Ready: {isStreamReady ? '✅' : '❌'}</p>
+                <p>Transport Ready: {isTransportReady ? '✅' : '❌'}</p>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+                <video ref={vidref} autoPlay playsInline muted style={{ width: '45%', border: '1px solid black' }} />
+                {Array.from(remoteStreams.values()).map((stream, index) => (
+                    <video key={index} autoPlay playsInline ref={video => {
+                        if (video) video.srcObject = stream;
+                    }} style={{ width: '45%', border: '1px solid black' }} />
+                ))}
+            </div>
+            <button onClick={goLive} disabled={!isStreamReady || !isTransportReady || isProducing}>
+                {isProducing ? '● Live' : 'Go Live'}
+            </button>
+        </div>
+    );
 }
-
