@@ -2,11 +2,14 @@ const express = require('express');
 import type { Request, Response } from "express";
 const http = require('http');
 const mediasoup = require('mediasoup');
+const cors = require('cors');
 const { Server } = require('socket.io');
 import type { Socket } from "socket.io";
 const {spawn} = require('child_process');
-
+const path = require('path');
 const FFMPEG_PROCESS_MAP = new Map();
+const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +19,9 @@ const io = new Server(server, {
         methods: ['GET', 'POST'],
     }
 });
+
+app.use(cors());
+const hlsOutputPath = path.resolve('live');
 
 // --- Mediasoup and room state ---
 let worker: any;
@@ -57,8 +63,7 @@ async function setupSoup() {
 async function run() {
     await setupSoup();
 
-    app.use('/hls', express.static('live'));
-
+    app.use('/hls', express.static(hlsOutputPath));
     server.listen(3003, () => {
         console.log('listening on 3003');
     });
@@ -160,6 +165,80 @@ async function run() {
             }
         });
 
+       socket.on('start-hls-stream', async (callback) => {
+    console.log('-> Received request to start HLS stream');
+
+    const videoProducer = producers.find(p => p.producer.kind === 'video');
+    const audioProducer = producers.find(p => p.producer.kind === 'audio');
+
+    if (!videoProducer || !audioProducer) {
+        return callback({ error: 'No video or audio producers available' });
+    }
+
+    // --- Define FFMPEG's listening ports ---
+    const ffmpegRtpVideoPort = 5004;
+    const ffmpegRtpAudioPort = 5006;
+
+    // --- Create PlainTransports for mediasoup to send media to FFMPEG ---
+    const videoTransport = await router.createPlainTransport({
+        listenIp: '127.0.0.1',
+        rtcpMux: false, // Ensure separate RTCP port
+    });
+    // Tell mediasoup where to send the video RTP
+    await videoTransport.connect({ ip: '127.0.0.1', port: ffmpegRtpVideoPort });
+
+    const audioTransport = await router.createPlainTransport({
+        listenIp: '127.0.0.1',
+        rtcpMux: false,
+    });
+    // Tell mediasoup where to send the audio RTP
+    await audioTransport.connect({ ip: '127.0.0.1', port: ffmpegRtpAudioPort });
+
+    // --- Create consumers to pipe the media to the transports ---
+    const videoConsumer = await videoTransport.consume({ producerId: videoProducer.producer.id });
+    const audioConsumer = await audioTransport.consume({ producerId: audioProducer.producer.id });
+
+    // --- Generate a simple SDP file telling FFMPEG where to listen ---
+    const sdpString = `v=0
+o=- 0 0 IN IP4 127.0.0.1
+s=FFMPEG
+c=IN IP4 127.0.0.1
+t=0 0
+m=video ${ffmpegRtpVideoPort} RTP/AVP 101
+a=rtpmap:101 VP8/90000
+m=audio ${ffmpegRtpAudioPort} RTP/AVP 102
+a=rtpmap:102 opus/48000/2`;
+
+    const sdpFilePath = path.join(os.tmpdir(), 'stream.sdp');
+    fs.writeFileSync(sdpFilePath, sdpString);
+
+    // --- Spawn FFMPEG with the simplified input ---
+    const ffmpeg = spawn('ffmpeg', [
+        '-protocol_whitelist', 'file,udp,rtp',
+        '-i', sdpFilePath,
+        '-c:v', 'copy', // We can copy the video codec
+        '-c:a', 'aac', '-b:a', '128k', // But we need to transcode audio
+        '-hls_time', '2', '-hls_list_size', '5', '-hls_flags', 'delete_segments',
+        '-f', 'hls',
+        path.join(hlsOutputPath, 'output.m3u8'),
+    ]);
+
+    FFMPEG_PROCESS_MAP.set(socket.id, ffmpeg);
+    
+    // FFMPEG logs
+    ffmpeg.stderr.on('data', (data: any) => { console.error(`ffmpeg-stderr: ${data}`); });
+    ffmpeg.on('close', (code: number) => {
+        console.log(`ffmpeg process exited with code ${code}`);
+        videoConsumer.close();
+        audioConsumer.close();
+        videoTransport.close();
+        audioTransport.close();
+        fs.unlinkSync(sdpFilePath);
+        FFMPEG_PROCESS_MAP.delete(socket.id);
+    });
+
+    callback({ streaming: true });
+});
         // --- NEW: Clean up resources on disconnect ---
         socket.on('disconnect', () => {
             console.log(`client disconnected: ${socket.id}`);
@@ -179,6 +258,11 @@ async function run() {
             // Close and remove transports associated with this socket
             transports.filter(t => t.socketId === socket.id).forEach(t => t.transport.close());
             transports = transports.filter(t => t.socketId !== socket.id);
+
+            if (FFMPEG_PROCESS_MAP.has(socket.id)) {
+                    FFMPEG_PROCESS_MAP.get(socket.id).kill('SIGINT');
+                    FFMPEG_PROCESS_MAP.delete(socket.id);
+            }
         });
     });
 }

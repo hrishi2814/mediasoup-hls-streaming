@@ -11,7 +11,9 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^5.1.0",
+    "hls.js": "^1.6.7",
     "mediasoup": "^3.16.7",
     "mediasoup-client": "^3.12.5",
     "next": "15.4.3",
@@ -26,6 +28,7 @@
     "@types/node": "^20.19.9",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/webpack": "^5.28.5",
     "concurrently": "^9.2.0",
     "nodemon": "^3.1.10",
     "tailwindcss": "^4",

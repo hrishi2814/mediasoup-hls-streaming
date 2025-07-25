@@ -132,10 +132,21 @@ export default function Stream() {
     }, []);
 
     const goLive = async () => {
-        if (!sendTransportRef.current || !localStreamRef.current) return;
+        if (!sendTransportRef.current || !localStreamRef.current) {
+            console.log('Transport or stream not ready');
+            return;
+        }
         setIsProducing(true);
-        const track = localStreamRef.current.getVideoTracks()[0];
-        if (track) { await sendTransportRef.current.produce({ track }); }
+        
+        // Loop through all tracks (audio and video) and create a producer for each
+        for (const track of localStreamRef.current.getTracks()) {
+            try {
+                await sendTransportRef.current.produce({ track });
+            } catch (err) {
+                console.error('Error producing track:', track.kind, err);
+            }
+        }
+        console.log('--- All producers created ---');
     };
 
     return (
