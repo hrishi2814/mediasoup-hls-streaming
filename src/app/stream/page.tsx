@@ -4,23 +4,21 @@ import React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from "socket.io-client";
 import { Device } from "mediasoup-client";
-import { types } from 'mediasoup-client'; // Import the types
+import { types } from 'mediasoup-client';
 
 export default function Stream() {
-    // --- Refs for core objects ---
     const vidref = useRef<HTMLVideoElement>(null);
     const socketRef = useRef<Socket | null>(null);
     const devref = useRef<Device | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
 
-    // --- Refs for transports ---
     const sendTransportRef = useRef<types.Transport | null>(null);
     const recvTransportRef = useRef<types.Transport | null>(null);
 
-    // --- State for UI ---
     const [isStreamReady, setIsStreamReady] = useState(false);
     const [isTransportReady, setIsTransportReady] = useState(false);
     const [isProducing, setIsProducing] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
     const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
 
     useEffect(() => {
@@ -36,7 +34,6 @@ export default function Stream() {
                     devref.current = device;
                     console.log('device boi loaded');
                     
-                    // Create both transports after device is loaded
                     createSendTransport();
                     createRecvTransport();
                 } catch (error) {
@@ -45,10 +42,18 @@ export default function Stream() {
             });
         });
 
-        // --- Listen for new producers from other clients ---
         socket.on('new-producer', ({ producerId }) => {
             console.log(`--- New producer detected: ${producerId}`);
             consumeStream(producerId);
+        });
+
+        socket.on('producer-closed', ({ producerId }) => {
+            console.log(`--- Producer closed: ${producerId}`);
+            setRemoteStreams(prev => {
+                const newMap = new Map(prev);
+                newMap.delete(producerId);
+                return newMap;
+            });
         });
 
         const createSendTransport = () => {
@@ -58,7 +63,7 @@ export default function Stream() {
                 
                 const transport = devref.current!.createSendTransport(params);
                 sendTransportRef.current = transport;
-                setIsTransportReady(true); // Set ready once transport is created
+                setIsTransportReady(true);
                 console.log('Send transport created, ready to produce.');
 
                 transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
@@ -121,14 +126,24 @@ export default function Stream() {
         };
 
         async function getCameraStream() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            localStreamRef.current = stream;
-            if (vidref.current) { vidref.current.srcObject = stream; }
-            setIsStreamReady(true);
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                localStreamRef.current = stream;
+                if (vidref.current) { vidref.current.srcObject = stream; }
+                setIsStreamReady(true);
+            } catch (error) {
+                console.error('Error accessing camera/microphone:', error);
+            }
         }
         getCameraStream();
 
-        return () => { socket.disconnect(); };
+        return () => {
+            // Cleanup on unmount
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+            }
+            socket.disconnect();
+        };
     }, []);
 
     const goLive = async () => {
@@ -138,7 +153,6 @@ export default function Stream() {
         }
         setIsProducing(true);
         
-        // Loop through all tracks (audio and video) and create a producer for each
         for (const track of localStreamRef.current.getTracks()) {
             try {
                 await sendTransportRef.current.produce({ track });
@@ -149,24 +163,86 @@ export default function Stream() {
         console.log('--- All producers created ---');
     };
 
+    const startHLSStream = () => {
+        if (!socketRef.current) return;
+        
+        socketRef.current.emit('start-hls-stream', (response: any) => {
+            if (response.error) {
+                console.error('Failed to start HLS stream:', response.error);
+                alert('Failed to start HLS stream: ' + response.error);
+            } else {
+                setIsStreaming(true);
+                console.log('HLS stream started successfully');
+            }
+        });
+    };
+
+    const stopHLSStream = () => {
+        if (!socketRef.current) return;
+        
+        socketRef.current.emit('stop-hls-stream', (response: any) => {
+            if (response.error) {
+                console.error('Failed to stop HLS stream:', response.error);
+            } else {
+                setIsStreaming(false);
+                console.log('HLS stream stopped');
+            }
+        });
+    };
+
     return (
-        <div>
+        <div style={{ padding: '20px' }}>
             <h1>My Stream</h1>
-            <div>
+            <div style={{ marginBottom: '20px' }}>
                 <p>Stream Ready: {isStreamReady ? '✅' : '❌'}</p>
                 <p>Transport Ready: {isTransportReady ? '✅' : '❌'}</p>
+                <p>Producing: {isProducing ? '✅' : '❌'}</p>
+                <p>HLS Streaming: {isStreaming ? '🔴 LIVE' : '❌'}</p>
             </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-                <video ref={vidref} autoPlay playsInline muted style={{ width: '45%', border: '1px solid black' }} />
+            
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                <video 
+                    ref={vidref} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    style={{ width: '45%', border: '1px solid black' }} 
+                />
                 {Array.from(remoteStreams.values()).map((stream, index) => (
-                    <video key={index} autoPlay playsInline ref={video => {
-                        if (video) video.srcObject = stream;
-                    }} style={{ width: '45%', border: '1px solid black' }} />
+                    <video 
+                        key={index} 
+                        autoPlay 
+                        playsInline 
+                        ref={video => {
+                            if (video) video.srcObject = stream;
+                        }} 
+                        style={{ width: '45%', border: '1px solid black' }} 
+                    />
                 ))}
             </div>
-            <button onClick={goLive} disabled={!isStreamReady || !isTransportReady || isProducing}>
-                {isProducing ? '● Live' : 'Go Live'}
-            </button>
+            
+            <div style={{ display: 'flex', gap: '10px' }}>
+                <button 
+                    onClick={goLive} 
+                    disabled={!isStreamReady || !isTransportReady || isProducing}
+                >
+                    {isProducing ? '● Live' : 'Go Live'}
+                </button>
+                
+                <button 
+                    onClick={startHLSStream} 
+                    disabled={!isProducing || isStreaming}
+                >
+                    Start HLS Stream
+                </button>
+                
+                <button 
+                    onClick={stopHLSStream} 
+                    disabled={!isStreaming}
+                >
+                    Stop HLS Stream
+                </button>
+            </div>
         </div>
     );
 }

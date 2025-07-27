@@ -10,6 +10,9 @@
 !.yarn/releases
 !.yarn/versions
 
+#live/ffmpeg streams
+/live
+
 # testing
 /coverage
 
