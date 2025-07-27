@@ -502,6 +502,11 @@ a=recvonly`;
             }
         });
 
+        socket.on('getProducers', (callback) => {
+            const producerInfos = producers.map(p => ({ producerId: p.producer.id, socketId: p.socketId }));
+            callback(producerInfos);
+        });
+
         socket.on('disconnect', () => {
             console.log(`client disconnected: ${socket.id}`);
             

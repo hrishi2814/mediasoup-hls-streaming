@@ -23,6 +23,67 @@ export default function Stream() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
 
+    // Move consumeStream to top-level so it is in scope for goLive
+    const consumeStream = async (producerId: string, socketId: string) => {
+        if (!devref.current || !recvTransportRef.current || !socketRef.current) return;
+
+        const rtpCapabilities = devref.current.rtpCapabilities;
+        socketRef.current.emit('createConsumer', { transportId: recvTransportRef.current.id, producerId, rtpCapabilities }, async (params: any) => {
+            if (params.error) { console.error('Cannot consume', params.error); return; }
+
+            const consumer = await recvTransportRef.current!.consume({
+                id: params.id,
+                producerId: params.producerId,
+                kind: params.kind,
+                rtpParameters: params.rtpParameters,
+            });
+            
+            socketRef.current!.emit('resumeConsumer', { consumerId: consumer.id });
+
+            const { track } = consumer;
+            setRemoteStreams(prev => {
+                const newMap = new Map(prev);
+                let stream = newMap.get(socketId);
+                if (!stream) {
+                    stream = new MediaStream();
+                }
+                stream.addTrack(track);
+                newMap.set(socketId, stream);
+                return newMap;
+            });
+        });
+    };
+
+    // Move goLive to top-level so it is in scope for the button
+    const goLive = async () => {
+        if (!sendTransportRef.current || !localStreamRef.current) {
+            console.log('Transport or stream not ready');
+            return;
+        }
+        setIsProducing(true);
+        
+        for (const track of localStreamRef.current.getTracks()) {
+            try {
+                await sendTransportRef.current.produce({ track });
+            } catch (err) {
+                console.error('Error producing track:', track.kind, err);
+            }
+        }
+        console.log('--- All producers created ---');
+
+        // After producing, request current producers and consume any not your own
+        if (socketRef.current) {
+            socketRef.current.emit('getProducers', (producers: { producerId: string, socketId: string }[]) => {
+                producers.forEach(({ producerId, socketId }) => {
+                    // Don't consume your own streams
+                    if (socketId !== socketRef.current!.id) {
+                        consumeStream(producerId, socketId);
+                    }
+                });
+            });
+        }
+    };
+
     useEffect(() => {
         const socket = io("http://192.168.1.38:3003");
         socketRef.current = socket;
@@ -110,36 +171,6 @@ export default function Stream() {
             });
         };
 
-        const consumeStream = async (producerId: string, socketId: string) => {
-            if (!devref.current || !recvTransportRef.current || !socketRef.current) return;
-
-            const rtpCapabilities = devref.current.rtpCapabilities;
-            socketRef.current.emit('createConsumer', { transportId: recvTransportRef.current.id, producerId, rtpCapabilities }, async (params: any) => {
-                if (params.error) { console.error('Cannot consume', params.error); return; }
-
-                const consumer = await recvTransportRef.current!.consume({
-                    id: params.id,
-                    producerId: params.producerId,
-                    kind: params.kind,
-                    rtpParameters: params.rtpParameters,
-                });
-                
-                socketRef.current!.emit('resumeConsumer', { consumerId: consumer.id });
-
-                const { track } = consumer;
-                setRemoteStreams(prev => {
-                    const newMap = new Map(prev);
-                    let stream = newMap.get(socketId);
-                    if (!stream) {
-                        stream = new MediaStream();
-                    }
-                    stream.addTrack(track);
-                    newMap.set(socketId, stream);
-                    return newMap;
-                });
-            });
-        };
-
         async function getCameraStream() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -160,23 +191,6 @@ export default function Stream() {
             socket.disconnect();
         };
     }, []);
-
-    const goLive = async () => {
-        if (!sendTransportRef.current || !localStreamRef.current) {
-            console.log('Transport or stream not ready');
-            return;
-        }
-        setIsProducing(true);
-        
-        for (const track of localStreamRef.current.getTracks()) {
-            try {
-                await sendTransportRef.current.produce({ track });
-            } catch (err) {
-                console.error('Error producing track:', track.kind, err);
-            }
-        }
-        console.log('--- All producers created ---');
-    };
 
     const startHLSStream = () => {
         if (!socketRef.current) return;
