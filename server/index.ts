@@ -144,8 +144,8 @@ async function run() {
 
         // Inform the client about any existing producers
         if (producers.length > 0) {
-            const producerIds = producers.map(p => p.producer.id);
-            socket.emit('existing-producers', producerIds);
+            const producerInfos = producers.map(p => ({ producerId: p.producer.id, socketId: p.socketId }));
+            socket.emit('existing-producers', producerInfos);
         }
 
         socket.on('getRouterRtpCapabilities', (callback) => {
@@ -191,7 +191,7 @@ async function run() {
             producers.push({ socketId: socket.id, producer: producer });
             console.log('---producer created:', producer.id);
 
-            socket.broadcast.emit('new-producer', { producerId: producer.id });
+            socket.broadcast.emit('new-producer', { producerId: producer.id, socketId: socket.id });
             callback({ id: producer.id });
         });
 

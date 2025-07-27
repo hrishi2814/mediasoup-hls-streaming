@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from "socket.io-client";
 import { Device } from "mediasoup-client";
 import { types } from 'mediasoup-client';
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Mic, MicOff, Video, VideoOff } from "lucide-react";
 
 export default function Stream() {
     const vidref = useRef<HTMLVideoElement>(null);
@@ -42,18 +44,23 @@ export default function Stream() {
             });
         });
 
-        socket.on('new-producer', ({ producerId }) => {
-            console.log(`--- New producer detected: ${producerId}`);
-            consumeStream(producerId);
+        socket.on('new-producer', ({ producerId, socketId }) => {
+            console.log(`--- New producer detected: ${producerId} from ${socketId}`);
+            consumeStream(producerId, socketId);
         });
 
-        socket.on('producer-closed', ({ producerId }) => {
-            console.log(`--- Producer closed: ${producerId}`);
+        socket.on('producer-closed', ({ producerId, socketId }) => {
+            console.log(`--- Producer closed: ${producerId} from ${socketId}`);
             setRemoteStreams(prev => {
                 const newMap = new Map(prev);
-                newMap.delete(producerId);
+                newMap.delete(socketId);
                 return newMap;
             });
+        });
+
+        socket.on('existing-producers', (producers: { producerId: string, socketId: string }[]) => {
+            console.log('Existing producers:', producers);
+            producers.forEach(({ producerId, socketId }) => consumeStream(producerId, socketId));
         });
 
         const createSendTransport = () => {
@@ -103,7 +110,7 @@ export default function Stream() {
             });
         };
 
-        const consumeStream = async (producerId: string) => {
+        const consumeStream = async (producerId: string, socketId: string) => {
             if (!devref.current || !recvTransportRef.current || !socketRef.current) return;
 
             const rtpCapabilities = devref.current.rtpCapabilities;
@@ -120,8 +127,16 @@ export default function Stream() {
                 socketRef.current!.emit('resumeConsumer', { consumerId: consumer.id });
 
                 const { track } = consumer;
-                const newStream = new MediaStream([track]);
-                setRemoteStreams(prev => new Map(prev).set(producerId, newStream));
+                setRemoteStreams(prev => {
+                    const newMap = new Map(prev);
+                    let stream = newMap.get(socketId);
+                    if (!stream) {
+                        stream = new MediaStream();
+                    }
+                    stream.addTrack(track);
+                    newMap.set(socketId, stream);
+                    return newMap;
+                });
             });
         };
 
@@ -242,6 +257,14 @@ export default function Stream() {
                 >
                     Stop HLS Stream
                 </button>
+            </div>
+
+            <div>
+                <ToggleGroup type="multiple">
+                <ToggleGroupItem value="mute"> <MicOff className="w-4 h-4" /></ToggleGroupItem>
+                <ToggleGroupItem value="video"><Video className="w-4 h-4" /></ToggleGroupItem>
+                
+                </ToggleGroup>
             </div>
         </div>
     );
