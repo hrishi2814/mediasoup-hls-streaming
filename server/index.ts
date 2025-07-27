@@ -234,264 +234,520 @@ async function run() {
             }
         });
 
-        // Replace your start-hls-stream handler with this debug version:
 
-socket.on('start-hls-stream', async (callback) => {
-    console.log('-> Received request to start HLS stream');
+        // socket.on('start-hls-stream', async (callback) => {
+        //     console.log('-> Received request to start HLS stream');
 
-    const videoProducer = producers.find(p => p.producer.kind === 'video');
-    const audioProducer = producers.find(p => p.producer.kind === 'audio');
+        //     // Find up to two video and two audio producers
+        //     const videoProducers = producers.filter(p => p.producer.kind === 'video').slice(0, 2);
+        //     const audioProducers = producers.filter(p => p.producer.kind === 'audio').slice(0, 2);
 
-    if (!videoProducer || !audioProducer) {
-        return callback({ error: 'No video or audio producers available' });
-    }
+        //     console.log('Video producers:', videoProducers.map(p => p.producer.id));
+        //     console.log('Audio producers:', audioProducers.map(p => p.producer.id));
 
-    if (FFMPEG_PROCESS_MAP.has(socket.id)) {
-        return callback({ error: 'Already streaming' });
-    }
+        //     if (videoProducers.length === 0 || audioProducers.length === 0) {
+        //         return callback({ error: 'No video or audio producers available' });
+        //     }
 
-    try {
-        const ffmpegRtpVideoPort = 5004;
-        const ffmpegRtcpVideoPort = 5005;
-        const ffmpegRtpAudioPort = 5006;
-        const ffmpegRtcpAudioPort = 5007;
+        //     if (FFMPEG_PROCESS_MAP.has(socket.id)) {
+        //         return callback({ error: 'Already streaming' });
+        //     }
 
-        console.log('Creating video transport...');
-        // Create plain transports for FFmpeg - MediaSoup will send TO FFmpeg
-        const videoTransport = await router.createPlainTransport({
-            listenIp: '127.0.0.1',
-            rtcpMux: false,
-            comedia: false,  // MediaSoup initiates connection
-            enableSrtp: false,
-        });
+        //     try {
+        //         // Assign unique ports for each stream
+        //         const basePort = 5004;
+        //         const transports = [];
+        //         const consumers = [];
+        //         let sdpMedia = '';
+        //         let ffmpegInputMaps: string[] = [];
+        //         let ffmpegInputArgs = [];
+        //         let videoInputs = [];
+        //         let audioInputs = [];
 
-        console.log('Creating audio transport...');
-        const audioTransport = await router.createPlainTransport({
-            listenIp: '127.0.0.1',
-            rtcpMux: false,
-            comedia: false,  // MediaSoup initiates connection
-            enableSrtp: false,
-        });
+        //         // Video
+        //         for (let i = 0; i < videoProducers.length; i++) {
+        //             const rtpPort = basePort + i * 2;
+        //             const rtcpPort = rtpPort + 1;
+        //             console.log(`Creating video transport for producer ${videoProducers[i].producer.id} on ports RTP:${rtpPort} RTCP:${rtcpPort}`);
+        //             const transport = await router.createPlainTransport({
+        //                 listenIp: '127.0.0.1',
+        //                 rtcpMux: false,
+        //                 comedia: false,
+        //                 enableSrtp: false,
+        //             });
+        //             await transport.connect({ ip: '127.0.0.1', port: rtpPort, rtcpPort });
+        //             const consumer = await transport.consume({
+        //                 producerId: videoProducers[i].producer.id,
+        //                 rtpCapabilities: router.rtpCapabilities,
+        //                 paused: false
+        //             });
+        //             const pt = consumer.rtpParameters.codecs[0].payloadType;
+        //             console.log(`Video consumer for producer ${videoProducers[i].producer.id} created with payload type ${pt}`);
+        //             await consumer.resume();
+        //             console.log(`Video consumer for producer ${videoProducers[i].producer.id} resumed`);
+        //             sdpMedia += `m=video ${rtpPort} RTP/AVP ${pt}\n`;
+        //             sdpMedia += `a=rtpmap:${pt} VP8/90000\n`;
+        //             sdpMedia += `a=rtcp:${rtcpPort}\n`;
+        //             sdpMedia += `a=recvonly\n`;
+        //             transports.push(transport);
+        //             consumers.push(consumer);
+        //             videoInputs.push(i);
+        //         }
+        //         // Audio
+        //         for (let i = 0; i < audioProducers.length; i++) {
+        //             const rtpPort = basePort + 100 + i * 2;
+        //             const rtcpPort = rtpPort + 1;
+        //             console.log(`Creating audio transport for producer ${audioProducers[i].producer.id} on ports RTP:${rtpPort} RTCP:${rtcpPort}`);
+        //             const transport = await router.createPlainTransport({
+        //                 listenIp: '127.0.0.1',
+        //                 rtcpMux: false,
+        //                 comedia: false,
+        //                 enableSrtp: false,
+        //             });
+        //             await transport.connect({ ip: '127.0.0.1', port: rtpPort, rtcpPort });
+        //             const consumer = await transport.consume({
+        //                 producerId: audioProducers[i].producer.id,
+        //                 rtpCapabilities: router.rtpCapabilities,
+        //                 paused: false
+        //             });
+        //             const pt = consumer.rtpParameters.codecs[0].payloadType;
+        //             console.log(`Audio consumer for producer ${audioProducers[i].producer.id} created with payload type ${pt}`);
+        //             await consumer.resume();
+        //             console.log(`Audio consumer for producer ${audioProducers[i].producer.id} resumed`);
+        //             sdpMedia += `m=audio ${rtpPort} RTP/AVP ${pt}\n`;
+        //             sdpMedia += `a=rtpmap:${pt} opus/48000/2\n`;
+        //             sdpMedia += `a=rtcp:${rtcpPort}\n`;
+        //             sdpMedia += `a=recvonly\n`;
+        //             transports.push(transport);
+        //             consumers.push(consumer);
+        //             audioInputs.push(i);
+        //         }
 
-        console.log('Video transport created on:', videoTransport.tuple);
-        console.log('Audio transport created on:', audioTransport.tuple);
+        //         // SDP
+        //         const sdpString = `v=0\no=- 0 0 IN IP4 127.0.0.1\ns=FFMPEG\nc=IN IP4 127.0.0.1\nt=0 0\n${sdpMedia}`;
+        //         const sdpFilePath = path.join(os.tmpdir(), `stream_${socket.id}.sdp`);
+        //         fs.writeFileSync(sdpFilePath, sdpString);
+        //         console.log('Generated SDP for FFmpeg to receive:');
+        //         console.log(sdpString);
 
-        console.log('Creating video consumer...');
-        const videoConsumer = await videoTransport.consume({
-            producerId: videoProducer.producer.id,
-            rtpCapabilities: router.rtpCapabilities,
-            paused: false
-        });
-        
-        console.log('Creating audio consumer...');
-        const audioConsumer = await audioTransport.consume({
-            producerId: audioProducer.producer.id,
-            rtpCapabilities: router.rtpCapabilities,
-            paused: false
-        });
+        //         // Clean up any existing files first
+        //         const streamFiles = fs.readdirSync(hlsOutputPath).filter((file:string) => 
+        //             file.includes(`stream_${socket.id}`)
+        //         );
+        //         streamFiles.forEach((file:string) => {
+        //             try {
+        //                 fs.unlinkSync(path.join(hlsOutputPath, file));
+        //             } catch (err) {
+        //                 console.warn('Could not delete old file:', file);
+        //             }
+        //         });
 
-        // Get the actual RTP parameters for SDP generation
-        const videoRtpParams = videoConsumer.rtpParameters;
-        const audioRtpParams = audioConsumer.rtpParameters;
+        //         // FFmpeg input mapping
+        //         // -map 0:v:0 -map 0:v:1 ... for video, -map 0:a:0 -map 0:a:1 ... for audio
+        //         videoInputs.forEach(i => {
+        //             ffmpegInputMaps.push('-map');
+        //             ffmpegInputMaps.push(`0:v:${i}`);
+        //         });
+        //         audioInputs.forEach(i => {
+        //             ffmpegInputMaps.push('-map');
+        //             ffmpegInputMaps.push(`0:a:${i}`);
+        //         });
 
-        const videoPayloadType = videoRtpParams.codecs[0].payloadType;
-        const audioPayloadType = audioRtpParams.codecs[0].payloadType;
+        //         // xstack for video grid (2x1 for 2 videos)
+        //         let filterComplex = '';
+        //         if (videoInputs.length === 2) {
+        //             filterComplex += `[0:v:0][0:v:1]xstack=inputs=2:layout=0_0|w0_0[vout];`;
+        //         } else if (videoInputs.length === 1) {
+        //             filterComplex += `[0:v:0]copy[vout];`;
+        //         }
+        //         // amix for audio
+        //         if (audioInputs.length === 2) {
+        //             filterComplex += `[0:a:0][0:a:1]amix=inputs=2[aout]`;
+        //         } else if (audioInputs.length === 1) {
+        //             filterComplex += `[0:a:0]anull[aout]`;
+        //         }
 
-        console.log('Video payload type:', videoPayloadType);
-        console.log('Audio payload type:', audioPayloadType);
+        //         // Start FFmpeg to RECEIVE on the fixed ports
+        //         const ffmpeg = spawn('ffmpeg', [
+        //             '-y',
+        //             '-protocol_whitelist', 'file,udp,rtp',
+        //             '-analyzeduration', '2000000',
+        //             '-probesize', '2000000',
+        //             '-fflags', '+genpts',
+        //             '-f', 'sdp',
+        //             '-i', sdpFilePath,
+        //             ...ffmpegInputMaps,
+        //             '-filter_complex', filterComplex,
+        //             '-map', '[vout]',
+        //             '-map', '[aout]',
+        //             // Video encoding settings
+        //             '-c:v', 'libx264',
+        //             '-preset', 'ultrafast',
+        //             '-tune', 'zerolatency',
+        //             '-profile:v', 'baseline',
+        //             '-level', '3.1',
+        //             '-pix_fmt', 'yuv420p',
+        //             '-g', '30',
+        //             '-keyint_min', '30',
+        //             '-sc_threshold', '0',
+        //             '-r', '30',
+        //             '-b:v', '500k',
+        //             '-maxrate', '750k',
+        //             '-bufsize', '1500k',
+        //             // Audio encoding settings
+        //             '-c:a', 'aac',
+        //             '-b:a', '128k',
+        //             '-ar', '48000',
+        //             '-ac', '2',
+        //             // HLS settings
+        //             '-f', 'hls',
+        //             '-hls_time', '2',
+        //             '-hls_list_size', '3',
+        //             '-hls_flags', 'delete_segments+round_durations+independent_segments',
+        //             '-hls_segment_type', 'mpegts',
+        //             '-hls_start_number_source', 'epoch',
+        //             path.join(hlsOutputPath, `stream_${socket.id}.m3u8`),
+        //         ], {
+        //             stdio: ['pipe', 'pipe', 'pipe'],
+        //             detached: false
+        //         });
 
-        // Connect MediaSoup transports TO FFmpeg's fixed ports
-        console.log('Connecting video transport to FFmpeg...');
-        await videoTransport.connect({
-            ip: '127.0.0.1',
-            port: ffmpegRtpVideoPort,
-            rtcpPort: ffmpegRtcpVideoPort
-        });
+        //         FFMPEG_PROCESS_MAP.set(socket.id, {
+        //             process: ffmpeg,
+        //             transports,
+        //             consumers,
+        //             sdpFilePath
+        //         });
 
-        console.log('Connecting audio transport to FFmpeg...');
-        await audioTransport.connect({
-            ip: '127.0.0.1',
-            port: ffmpegRtpAudioPort,
-            rtcpPort: ffmpegRtcpAudioPort
-        });
+        //         ffmpeg.stderr.on('data', (data: Buffer) => {
+        //             const output = data.toString();
+        //             console.log(`[FFMPEG]: ${output.trim()}`);
+        //         });
 
-        console.log('Transport connections established');
-        console.log('Video transport tuple after connect:', videoTransport.tuple);
-        console.log('Audio transport tuple after connect:', audioTransport.tuple);
+        //         ffmpeg.stdout.on('data', (data: Buffer) => {
+        //             console.log(`[FFMPEG-OUT]: ${data.toString().trim()}`);
+        //         });
 
-        // Generate SDP for FFmpeg to RECEIVE on the fixed ports
-        const sdpString = `v=0
-o=- 0 0 IN IP4 127.0.0.1
-s=FFMPEG
-c=IN IP4 127.0.0.1
-t=0 0
-m=video ${ffmpegRtpVideoPort} RTP/AVP ${videoPayloadType}
-a=rtpmap:${videoPayloadType} VP8/90000
-a=rtcp:${ffmpegRtcpVideoPort}
-a=recvonly
-m=audio ${ffmpegRtpAudioPort} RTP/AVP ${audioPayloadType}
-a=rtpmap:${audioPayloadType} opus/48000/2
-a=rtcp:${ffmpegRtcpAudioPort}
-a=recvonly`;
+        //         ffmpeg.on('close', (code: number | null) => {
+        //             console.log(`FFmpeg process exited with code ${code}`);
+        //             cleanup();
+        //         });
 
-        const sdpFilePath = path.join(os.tmpdir(), `stream_${socket.id}.sdp`);
-        fs.writeFileSync(sdpFilePath, sdpString);
-        
-        console.log('Generated SDP for FFmpeg to receive:');
-        console.log(sdpString);
+        //         ffmpeg.on('error', (error: Error) => {
+        //             console.error('FFMPEG spawn error:', error);
+        //             cleanup();
+        //         });
 
-        // Clean up any existing files first
-        const streamFiles = fs.readdirSync(hlsOutputPath).filter((file:string) => 
-            file.includes(`stream_${socket.id}`)
-        );
-        streamFiles.forEach((file:string) => {
-            try {
-                fs.unlinkSync(path.join(hlsOutputPath, file));
-            } catch (err) {
-                console.warn('Could not delete old file:', file);
+        //         const cleanup = () => {
+        //             if (FFMPEG_PROCESS_MAP.has(socket.id)) {
+        //                 const processData = FFMPEG_PROCESS_MAP.get(socket.id);
+        //                 try {
+        //                     processData.consumers.forEach((c: any) => c.close());
+        //                     processData.transports.forEach((t: any) => t.close());
+        //                     if (fs.existsSync(processData.sdpFilePath)) {
+        //                         fs.unlinkSync(processData.sdpFilePath);
+        //                     }
+        //                     const hlsFiles = fs.readdirSync(hlsOutputPath).filter((file:string) => 
+        //                         file.includes(`stream_${socket.id}`)
+        //                     );
+        //                     hlsFiles.forEach((file:string) => {
+        //                         try {
+        //                             fs.unlinkSync(path.join(hlsOutputPath, file));
+        //                         } catch (err) {
+        //                             console.warn('Could not delete HLS file:', file);
+        //                         }
+        //                     });
+        //                 } catch (err) {
+        //                     console.error('Cleanup error:', err);
+        //                 }
+        //                 FFMPEG_PROCESS_MAP.delete(socket.id);
+        //             }
+        //         };
+
+        //         // Wait for FFmpeg to detect streams and start processing (unchanged)
+        //         let checkCount = 0;
+        //         const checkInterval = setInterval(() => {
+        //             checkCount++;
+        //             const m3u8Path = path.join(hlsOutputPath, `stream_${socket.id}.m3u8`);
+        //             if (fs.existsSync(m3u8Path)) {
+        //                 console.log('✅ HLS stream file created successfully!');
+        //                 clearInterval(checkInterval);
+        //             } else if (checkCount >= 20) {
+        //                 console.log('❌ HLS stream file still not created after 20 seconds');
+        //                 clearInterval(checkInterval);
+        //             }
+        //         }, 1000);
+
+        //         callback({ streaming: true });
+        //     } catch (error) {
+        //         console.error('Error starting HLS stream:', error);
+        //         callback({ error: (error as Error).message });
+        //     }
+        // }); 
+        socket.on('start-hls-stream', async (callback) => {
+            console.log('-> Received request to start HLS stream');
+
+            // Find up to two video and two audio producers
+            const videoProducers = producers.filter(p => p.producer.kind === 'video').slice(0, 2);
+            const audioProducers = producers.filter(p => p.producer.kind === 'audio').slice(0, 2);
+
+            console.log('Video producers:', videoProducers.map(p => p.producer.id));
+            console.log('Audio producers:', audioProducers.map(p => p.producer.id));
+
+            if (videoProducers.length === 0 || audioProducers.length === 0) {
+                return callback({ error: 'No video or audio producers available' });
             }
-        });
 
-        console.log('Starting FFmpeg process...');
-        
-        // Start FFmpeg to RECEIVE on the fixed ports
-        const ffmpeg = spawn('ffmpeg', [
-            '-y',
-            '-protocol_whitelist', 'file,udp,rtp',
-            '-analyzeduration', '2000000',
-            '-probesize', '2000000',
-            '-fflags', '+genpts',
-            '-f', 'sdp',
-            '-i', sdpFilePath,
-            
-            // Force video stream inclusion
-            '-map', '0:v?',
-            '-map', '0:a?',
-            
-            // Video encoding settings
-            '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
-            '-profile:v', 'baseline',
-            '-level', '3.1',
-            '-pix_fmt', 'yuv420p',
-            '-g', '30',
-            '-keyint_min', '30',
-            '-sc_threshold', '0',
-            '-r', '30',
-            '-b:v', '500k',
-            '-maxrate', '750k',
-            '-bufsize', '1500k',
-            
-            // Audio encoding settings
-            '-c:a', 'aac',
-            '-b:a', '128k',
-            '-ar', '48000',
-            '-ac', '2',
-            
-            // HLS settings
-            '-f', 'hls',
-            '-hls_time', '2',
-            '-hls_list_size', '3',
-            '-hls_flags', 'delete_segments+round_durations+independent_segments',
-            '-hls_segment_type', 'mpegts',
-            '-hls_start_number_source', 'epoch',
-            
-            path.join(hlsOutputPath, `stream_${socket.id}.m3u8`),
-        ], { 
-            stdio: ['pipe', 'pipe', 'pipe'],
-            detached: false
-        });
-
-        FFMPEG_PROCESS_MAP.set(socket.id, {
-            process: ffmpeg,
-            videoTransport,
-            audioTransport,
-            videoConsumer,
-            audioConsumer,
-            sdpFilePath
-        });
-
-        // Log ALL FFmpeg output for debugging
-        ffmpeg.stderr.on('data', (data: Buffer) => {
-            const output = data.toString();
-            console.log(`[FFMPEG]: ${output.trim()}`);
-        });
-
-        ffmpeg.stdout.on('data', (data: Buffer) => {
-            console.log(`[FFMPEG-OUT]: ${data.toString().trim()}`);
-        });
-
-        ffmpeg.on('close', (code: number | null) => {
-            console.log(`FFmpeg process exited with code ${code}`);
-            cleanup();
-        });
-
-        ffmpeg.on('error', (error: Error) => {
-            console.error('FFMPEG spawn error:', error);
-            cleanup();
-        });
-
-        const cleanup = () => {
             if (FFMPEG_PROCESS_MAP.has(socket.id)) {
-                const processData = FFMPEG_PROCESS_MAP.get(socket.id);
-                try {
-                    processData.videoConsumer.close();
-                    processData.audioConsumer.close();
-                    processData.videoTransport.close();
-                    processData.audioTransport.close();
+                return callback({ error: 'Already streaming' });
+            }
+
+            try {
+                // Assign unique ports for each stream
+                const basePort = 5004;
+                const transports = [];
+                const consumers = [];
+                let sdpMedia = '';
+
+                // Video streams setup
+                for (let i = 0; i < videoProducers.length; i++) {
+                    const rtpPort = basePort + i * 2;
+                    const rtcpPort = rtpPort + 1;
+                    console.log(`Creating video transport for producer ${videoProducers[i].producer.id} on ports RTP:${rtpPort} RTCP:${rtcpPort}`);
                     
-                    if (fs.existsSync(processData.sdpFilePath)) {
-                        fs.unlinkSync(processData.sdpFilePath);
-                    }
-                    
-                    const hlsFiles = fs.readdirSync(hlsOutputPath).filter((file:string) => 
-                        file.includes(`stream_${socket.id}`)
-                    );
-                    
-                    hlsFiles.forEach((file:string) => {
-                        try {
-                            fs.unlinkSync(path.join(hlsOutputPath, file));
-                        } catch (err) {
-                            console.warn('Could not delete HLS file:', file);
-                        }
+                    const transport = await router.createPlainTransport({
+                        listenIp: '127.0.0.1',
+                        rtcpMux: false,
+                        comedia: false,
+                        enableSrtp: false,
                     });
                     
-                } catch (err) {
-                    console.error('Cleanup error:', err);
+                    await transport.connect({ ip: '127.0.0.1', port: rtpPort, rtcpPort });
+                    
+                    const consumer = await transport.consume({
+                        producerId: videoProducers[i].producer.id,
+                        rtpCapabilities: router.rtpCapabilities,
+                        paused: false
+                    });
+                    
+                    const pt = consumer.rtpParameters.codecs[0].payloadType;
+                    console.log(`Video consumer for producer ${videoProducers[i].producer.id} created with payload type ${pt}`);
+                    await consumer.resume();
+                    console.log(`Video consumer for producer ${videoProducers[i].producer.id} resumed`);
+                    
+                    // Add video media to SDP
+                    sdpMedia += `m=video ${rtpPort} RTP/AVP ${pt}\n`;
+                    sdpMedia += `c=IN IP4 127.0.0.1\n`;
+                    sdpMedia += `a=rtpmap:${pt} VP8/90000\n`;
+                    sdpMedia += `a=rtcp:${rtcpPort}\n`;
+                    sdpMedia += `a=recvonly\n`;
+                    
+                    transports.push(transport);
+                    consumers.push(consumer);
                 }
-                FFMPEG_PROCESS_MAP.delete(socket.id);
+
+                // Audio streams setup
+                for (let i = 0; i < audioProducers.length; i++) {
+                    const rtpPort = basePort + 100 + i * 2;
+                    const rtcpPort = rtpPort + 1;
+                    console.log(`Creating audio transport for producer ${audioProducers[i].producer.id} on ports RTP:${rtpPort} RTCP:${rtcpPort}`);
+                    
+                    const transport = await router.createPlainTransport({
+                        listenIp: '127.0.0.1',
+                        rtcpMux: false,
+                        comedia: false,
+                        enableSrtp: false,
+                    });
+                    
+                    await transport.connect({ ip: '127.0.0.1', port: rtpPort, rtcpPort });
+                    
+                    const consumer = await transport.consume({
+                        producerId: audioProducers[i].producer.id,
+                        rtpCapabilities: router.rtpCapabilities,
+                        paused: false
+                    });
+                    
+                    const pt = consumer.rtpParameters.codecs[0].payloadType;
+                    console.log(`Audio consumer for producer ${audioProducers[i].producer.id} created with payload type ${pt}`);
+                    await consumer.resume();
+                    console.log(`Audio consumer for producer ${audioProducers[i].producer.id} resumed`);
+                    
+                    // Add audio media to SDP
+                    sdpMedia += `m=audio ${rtpPort} RTP/AVP ${pt}\n`;
+                    sdpMedia += `c=IN IP4 127.0.0.1\n`;
+                    sdpMedia += `a=rtpmap:${pt} opus/48000/2\n`;
+                    sdpMedia += `a=rtcp:${rtcpPort}\n`;
+                    sdpMedia += `a=recvonly\n`;
+                    
+                    transports.push(transport);
+                    consumers.push(consumer);
+                }
+
+                // Create SDP file
+                const sdpString = `v=0\no=- 0 0 IN IP4 127.0.0.1\ns=FFMPEG\nc=IN IP4 127.0.0.1\nt=0 0\n${sdpMedia}`;
+                const sdpFilePath = path.join(os.tmpdir(), `stream_${socket.id}.sdp`);
+                fs.writeFileSync(sdpFilePath, sdpString);
+                console.log('Generated SDP for FFmpeg to receive:');
+                console.log(sdpString);
+
+                // Clean up any existing files first
+                const streamFiles = fs.readdirSync(hlsOutputPath).filter((file: string) => 
+                    file.includes(`stream_${socket.id}`)
+                );
+                streamFiles.forEach((file: string) => {
+                    try {
+                        fs.unlinkSync(path.join(hlsOutputPath, file));
+                    } catch (err) {
+                        console.warn('Could not delete old file:', file);
+                    }
+                });
+
+                // Build the correct filter complex
+                let filterComplex = '';
+                
+                // Video processing
+                if (videoProducers.length === 1) {
+                    // Single video - just scale it
+                    filterComplex += '[0:v:0]scale=1280:720[vout];';
+                } else if (videoProducers.length === 2) {
+                    // Two videos side by side - FIXED LAYOUT
+                    filterComplex += '[0:v:0]scale=640:720[v0];';
+                    filterComplex += '[0:v:1]scale=640:720[v1];';
+                    filterComplex += '[v0][v1]hstack=inputs=2[vout];';
+                }
+                
+                // Audio processing
+                if (audioProducers.length === 1) {
+                    filterComplex += '[0:a:0]anull[aout]';
+                } else if (audioProducers.length === 2) {
+                    filterComplex += '[0:a:0][0:a:1]amix=inputs=2:duration=longest[aout]';
+                }
+
+                console.log('Filter complex:', filterComplex);
+
+                // Build FFmpeg arguments - SIMPLIFIED
+                const ffmpegArgs = [
+                    '-y',
+                    '-protocol_whitelist', 'file,udp,rtp',
+                    '-analyzeduration', '3000000',
+                    '-probesize', '3000000',
+                    '-fflags', '+genpts',
+                    '-f', 'sdp',
+                    '-i', sdpFilePath,
+                    '-filter_complex', filterComplex,
+                    '-map', '[vout]',
+                    '-map', '[aout]',
+                    // Video encoding settings
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-tune', 'zerolatency',
+                    '-profile:v', 'baseline',
+                    '-level', '3.1',
+                    '-pix_fmt', 'yuv420p',
+                    '-g', '30',
+                    '-keyint_min', '30',
+                    '-sc_threshold', '0',
+                    '-r', '30',
+                    '-b:v', '1000k',
+                    '-maxrate', '1500k',
+                    '-bufsize', '3000k',
+                    // Audio encoding settings
+                    '-c:a', 'aac',
+                    '-b:a', '128k',
+                    '-ar', '48000',
+                    '-ac', '2',
+                    // HLS settings
+                    '-f', 'hls',
+                    '-hls_time', '4',
+                    '-hls_list_size', '5',
+                    '-hls_flags', 'delete_segments+round_durations+independent_segments',
+                    '-hls_segment_type', 'mpegts',
+                    '-hls_allow_cache', '0',
+                    path.join(hlsOutputPath, `stream_${socket.id}.m3u8`)
+                ];
+
+                console.log('Starting FFmpeg with command:');
+                console.log('ffmpeg', ffmpegArgs.join(' '));
+
+                const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
+                    stdio: ['pipe', 'pipe', 'pipe'],
+                    detached: false
+                });
+
+                FFMPEG_PROCESS_MAP.set(socket.id, {
+                    process: ffmpeg,
+                    transports,
+                    consumers,
+                    sdpFilePath
+                });
+
+                ffmpeg.stderr.on('data', (data: Buffer) => {
+                    const output = data.toString();
+                    console.log(`[FFMPEG]: ${output.trim()}`);
+                });
+
+                ffmpeg.stdout.on('data', (data: Buffer) => {
+                    console.log(`[FFMPEG-OUT]: ${data.toString().trim()}`);
+                });
+
+                ffmpeg.on('close', (code: number | null) => {
+                    console.log(`FFmpeg process exited with code ${code}`);
+                    cleanup();
+                });
+
+                ffmpeg.on('error', (error: Error) => {
+                    console.error('FFMPEG spawn error:', error);
+                    cleanup();
+                });
+
+                const cleanup = () => {
+                    if (FFMPEG_PROCESS_MAP.has(socket.id)) {
+                        const processData = FFMPEG_PROCESS_MAP.get(socket.id);
+                        try {
+                            processData.consumers.forEach((c: any) => c.close());
+                            processData.transports.forEach((t: any) => t.close());
+                            if (fs.existsSync(processData.sdpFilePath)) {
+                                fs.unlinkSync(processData.sdpFilePath);
+                            }
+                            const hlsFiles = fs.readdirSync(hlsOutputPath).filter((file: string) => 
+                                file.includes(`stream_${socket.id}`)
+                            );
+                            hlsFiles.forEach((file: string) => {
+                                try {
+                                    fs.unlinkSync(path.join(hlsOutputPath, file));
+                                } catch (err) {
+                                    console.warn('Could not delete HLS file:', file);
+                                }
+                            });
+                        } catch (err) {
+                            console.error('Cleanup error:', err);
+                        }
+                        FFMPEG_PROCESS_MAP.delete(socket.id);
+                    }
+                };
+
+                // Wait for FFmpeg to detect streams and start processing
+                let checkCount = 0;
+                const checkInterval = setInterval(() => {
+                    checkCount++;
+                    const m3u8Path = path.join(hlsOutputPath, `stream_${socket.id}.m3u8`);
+                    if (fs.existsSync(m3u8Path)) {
+                        console.log('✅ HLS stream file created successfully!');
+                        clearInterval(checkInterval);
+                        callback({ streaming: true });
+                    } else if (checkCount >= 20) {
+                        console.log('❌ HLS stream file still not created after 20 seconds');
+                        clearInterval(checkInterval);
+                        callback({ error: 'Stream failed to start' });
+                        cleanup();
+                    }
+                }, 1000);
+
+            } catch (error) {
+                console.error('Error starting HLS stream:', error);
+                callback({ error: (error as Error).message });
             }
-        };
-
-        // Wait for FFmpeg to detect streams and start processing
-        let checkCount = 0;
-        const checkInterval = setInterval(() => {
-            checkCount++;
-            const m3u8Path = path.join(hlsOutputPath, `stream_${socket.id}.m3u8`);
-            
-            console.log(`Check ${checkCount}: Looking for ${m3u8Path}`);
-            
-            if (fs.existsSync(m3u8Path)) {
-                console.log('✅ HLS stream file created successfully!');
-                console.log('📁 Files in live directory:', fs.readdirSync(hlsOutputPath).filter((f:any) => f.includes(socket.id)));
-                console.log('🔗 Available at: /hls/output.m3u8');
-                clearInterval(checkInterval);
-            } else if (checkCount >= 20) { // 20 seconds
-                console.log('❌ HLS stream file still not created after 20 seconds');
-                console.log('📁 Files in live directory:', fs.readdirSync(hlsOutputPath).filter((f:any) => f.includes(socket.id)));
-                clearInterval(checkInterval);
-            }
-        }, 1000);
-
-        callback({ streaming: true });
-
-    } catch (error) {
-        console.error('Error starting HLS stream:', error);
-        callback({ error: (error as Error).message });
-    }
-}); 
-
+        });
         socket.on('stop-hls-stream', (callback) => {
             if (FFMPEG_PROCESS_MAP.has(socket.id)) {
                 const processData = FFMPEG_PROCESS_MAP.get(socket.id);
