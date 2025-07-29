@@ -67,6 +67,18 @@ async function setupSoup() {
                 'x-google-start-bitrate': 1000,
             }
         },
+        //lets try if h264 can be streamed
+        //meh not useful
+        // {
+        //     kind: 'video',
+        //     mimeType: 'video/H264',
+        //     clockRate: 90000,
+        //     parameters: {
+        //         'packetization-mode': 1,
+        //         'profile-level-id': '42e01f', // Baseline profile for browser compatibility
+        //         'level-asymmetry-allowed': 1
+        //     }
+        // },
     ];
     router = await worker.createRouter({ mediaCodecs });
     console.log('router boi chalu');
@@ -520,6 +532,14 @@ async function run() {
                         rtcpMux: false,
                         comedia: false,
                         enableSrtp: false,
+
+                        //useless as shit for now
+                        // enableUdpSocket: true,
+                        // enableTcpSocket: false,
+                        // enableSctp: false,
+                        // numSctpStreams: { OS: 1024, MIS: 1024 },
+                        // maxSctpMessageSize: 262144,
+                        // sctpSendBufferSize: 262144,
                     });
                     
                     await transport.connect({ ip: '127.0.0.1', port: rtpPort, rtcpPort });
@@ -609,11 +629,27 @@ async function run() {
                 if (videoProducers.length === 1) {
                     // Single video - just scale it
                     filterComplex += '[0:v:0]scale=1280:720[vout];';
+
+                    //trying vaapi
+                    // filterComplex += '[0:v:0]scale_vaapi=1280:720[vout];';
+                    
+                    //2nd attempt
+                    // filterComplex+='[0:v:0]scale_vaapi=w=1280:h=720:format=nv12[vout];';
+
+                    //3rd attempt
+                    // filterComplex+='[0:v:0]scale=w=1280:h=720,format=nv12,hwupload[vout];[0:a:0]anull[aout]';
+
+
                 } else if (videoProducers.length === 2) {
                     // Two videos side by side - FIXED LAYOUT
                     filterComplex += '[0:v:0]scale=640:720[v0];';
                     filterComplex += '[0:v:1]scale=640:720[v1];';
+                    //
                     filterComplex += '[v0][v1]hstack=inputs=2[vout];';
+                    //trying vaapi
+                    // filterComplex += '[0:v:0]scale_vaapi=640:720[v0];';
+                    // filterComplex += '[0:v:1]scale_vaapi=640:720[v1];';
+                    // filterComplex += '[v0][v1]hstack=inputs=2[vout];';
                 }
                 
                 // Audio processing
@@ -629,28 +665,43 @@ async function run() {
                 const ffmpegArgs = [
                     '-y',
                     '-protocol_whitelist', 'file,udp,rtp',
-                    '-analyzeduration', '3000000',
-                    '-probesize', '3000000',
-                    '-fflags', '+genpts',
+                    '-analyzeduration', '10000000',
+                    '-probesize', '10000000',
+                    '-fflags', '+genpts+discardcorrupt',
+                      '-err_detect', 'ignore_err',
+                    // //vaaapi bc
+                    // '-hwaccel', 'vaapi',                    // VAAPI decode
+                    // '-hwaccel_device', '/dev/dri/renderD128', // Your device
+                    // '-hwaccel_output_format', 'vaapi',      // Keep in GPU memory
                     '-f', 'sdp',
                     '-i', sdpFilePath,
+
                     '-filter_complex', filterComplex,
                     '-map', '[vout]',
                     '-map', '[aout]',
+                    
                     // Video encoding settings
-                    '-c:v', 'libx264',
+                    '-c:v', 'libx264',             //this is the software encoding settings
                     '-preset', 'ultrafast',
                     '-tune', 'zerolatency',
-                    '-profile:v', 'baseline',
+
+                    // //hardware video encoding
+                    // '-c:v', 'h264_qsv',           // Hardware encoder
+                    // '-preset', 'fast', 
+                    
+                    //vaapi encoding
+                    // '-c:v', 'h264_vaapi',
+                    // '-profile:v', 'baseline',
+
                     '-level', '3.1',
-                    '-pix_fmt', 'yuv420p',
-                    '-g', '30',
+                    '-pix_fmt', 'yuv420p',  //let vaapi take care of this
+                    '-g', '22',
                     '-keyint_min', '30',
                     '-sc_threshold', '0',
-                    '-r', '30',
-                    '-b:v', '1000k',
-                    '-maxrate', '1500k',
-                    '-bufsize', '3000k',
+                    '-r', '22',
+                    '-b:v', '600k',
+                    '-maxrate', '600k',
+                    '-bufsize', '1200k',
                     // Audio encoding settings
                     '-c:a', 'aac',
                     '-b:a', '128k',
@@ -663,6 +714,7 @@ async function run() {
                     '-hls_flags', 'delete_segments+round_durations+independent_segments',
                     '-hls_segment_type', 'mpegts',
                     '-hls_allow_cache', '0',
+
                     path.join(hlsOutputPath, `stream_${socket.id}.m3u8`)
                 ];
 
