@@ -707,10 +707,13 @@ async function run() {
                     '-b:a', '128k',
                     '-ar', '48000',
                     '-ac', '2',
+
+
                     // HLS settings
                     '-f', 'hls',
-                    '-hls_time', '4',
-                    '-hls_list_size', '5',
+                    // '-hls_time', '4',
+                    '-hls_time', '1',
+                    '-hls_list_size', '3',//'5',
                     '-hls_flags', 'delete_segments+round_durations+independent_segments',
                     '-hls_segment_type', 'mpegts',
                     '-hls_allow_cache', '0',
