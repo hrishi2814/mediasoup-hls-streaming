@@ -724,7 +724,11 @@ async function run() {
                 console.log('Starting FFmpeg with command:');
                 console.log('ffmpeg', ffmpegArgs.join(' '));
 
-                const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
+                const ffmpeg = spawn('sudo',[
+                    'ionice','-c','1','-n','0',
+                    'nice','-n','-15',
+                    'ffmpeg', ...ffmpegArgs],
+                     {
                     stdio: ['pipe', 'pipe', 'pipe'],
                     detached: false
                 });
