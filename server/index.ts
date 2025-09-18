@@ -68,7 +68,7 @@ async function setupSoup() {
             }
         },
         //lets try if h264 can be streamed
-        //meh not useful
+        //meh not useful,maybe for safari
         // {
         //     kind: 'video',
         //     mimeType: 'video/H264',
@@ -130,7 +130,8 @@ async function run() {
     // Main HLS endpoint - serve the active stream
     app.get('/hls/output.m3u8', (req: Request, res: Response) => {
         const activeStreams = Array.from(FFMPEG_PROCESS_MAP.keys());
-        
+        console.log(Array.from(FFMPEG_PROCESS_MAP.keys()));
+
         if (activeStreams.length > 0) {
             const streamId = activeStreams[0];
             const streamPath = path.join(hlsOutputPath, `stream_${streamId}.m3u8`);
@@ -270,7 +271,7 @@ async function run() {
                 const basePort = 5004;
                 const transports = [];
                 // const consumers = [];
-                                const consumers : any[]=[];
+                const consumers : any[]=[];
 
                 let sdpMedia = '';
 
@@ -286,7 +287,7 @@ async function run() {
                         comedia: false,
                         enableSrtp: false,
 
-                        //useless as shit for now
+                        //useless as for now
                         // enableUdpSocket: true,
                         // enableTcpSocket: false,
                         // enableSctp: false,
@@ -428,6 +429,7 @@ async function run() {
                     // '-hwaccel', 'vaapi',                    // VAAPI decode
                     // '-hwaccel_device', '/dev/dri/renderD128', // Your device
                     // '-hwaccel_output_format', 'vaapi',      // Keep in GPU memory
+
                     '-f', 'sdp',
                     '-i', sdpFilePath,
 
@@ -490,10 +492,8 @@ async function run() {
                 });
 
                 //timer
-                // --- ADD THIS SECTION ---
                 // Start a periodic keyframe request for all video consumers.
                 const keyFrameInterval = setInterval(() => {
-                    // Using forEach to avoid TypeScript's implicit 'any' issue with for...of
                     consumers.forEach((consumer: any) => {
                         // We add a check for 'consumer' itself for safety
                         if (consumer && consumer.kind === 'video' && !consumer.closed) {
@@ -504,7 +504,6 @@ async function run() {
                         }
                     });
                 }, 4000); // Request a keyframe every 4 seconds.
-                // --- END OF ADDED SECTION ---
 
                 FFMPEG_PROCESS_MAP.set(socket.id, {
                     process: ffmpeg,

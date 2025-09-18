@@ -23,7 +23,6 @@ export default function Stream() {
     const [isStreaming, setIsStreaming] = useState(false);
     const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
 
-    // Move consumeStream to top-level so it is in scope for goLive
     const consumeStream = async (producerId: string, socketId: string) => {
         if (!devref.current || !recvTransportRef.current || !socketRef.current) return;
 
@@ -54,7 +53,6 @@ export default function Stream() {
         });
     };
 
-    // Move goLive to top-level so it is in scope for the button
     const goLive = async () => {
         if (!sendTransportRef.current || !localStreamRef.current) {
             console.log('Transport or stream not ready');
@@ -75,7 +73,7 @@ export default function Stream() {
         if (socketRef.current) {
             socketRef.current.emit('getProducers', (producers: { producerId: string, socketId: string }[]) => {
                 producers.forEach(({ producerId, socketId }) => {
-                    // Don't consume your own streams
+                    // Don't consume our own streams
                     if (socketId !== socketRef.current!.id) {
                         consumeStream(producerId, socketId);
                     }
